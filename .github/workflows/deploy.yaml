@@ -1,0 +1,127 @@
+name: Deploy Knowledge Base
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - ".gitignore"
+      - "README.md"
+      - "CONTRIBUTING.md"
+      - "LICENSE"
+
+  pull_request:
+    branches:
+      - main
+
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+  issues: write
+
+jobs:
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run linters
+        run: npm run lint:all
+
+      - name: Run URL checker
+        env:
+          URL_CHECKER_TIMEOUT: ${{ vars.URL_CHECKER_TIMEOUT }}
+        run: |
+          node script/url-checker.js \
+            -t "$URL_CHECKER_TIMEOUT" \
+            -p src/posts
+
+  build:
+    name: Build
+    needs: test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup GitHub Pages
+        uses: actions/configure-pages@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build production site
+        env:
+          PATH_PREFIX: /${{ github.event.repository.name }}/
+        run: npm run prod
+
+      - name: Upload built site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./_site
+
+  deploy:
+    name: Deploy
+    needs: build
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Download built site
+        uses: actions/download-artifact@v4
+        with:
+          name: github-pages
+          path: ./_site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+
+      - name: Create deployment status issue
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          DATE=$(date +%Y-%m-%d)
+
+          if [ "${{ steps.deployment.outcome }}" = "success" ]; then
+            STATUS="succeeded"
+          else
+            STATUS="failed"
+          fi
+
+          gh issue create \
+            --title "$DATE - Deployment: $STATUS" \
+            --body "URL: ${PAGE_URL:-N/A}"
