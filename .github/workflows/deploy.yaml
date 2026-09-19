@@ -123,5 +123,6 @@ jobs:
           fi
 
           gh issue create \
+            --repo "$GITHUB_REPOSITORY" \
             --title "$DATE - Deployment: $STATUS" \
             --body "URL: ${PAGE_URL:-N/A}"
