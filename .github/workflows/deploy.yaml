@@ -54,7 +54,7 @@ jobs:
         run: |
           node script/url-checker.js \
             -t "$URL_CHECKER_TIMEOUT" \
-            -p src/posts
+            -d src/posts
 
   build:
     name: Build
